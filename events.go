@@ -7,20 +7,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"os"
 	"time"
 )
-
-
-
-func createWriterToFile(filepath string) *os.File {
-	writer, err := os.Create(filepath)
-	if err != nil {
-		log.Fatalf("File open error: %s", err)
-	}
-	return writer
-}
-
 
 func getEventsByDailyEvents(collection string, groupHashes StringSet) {
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
@@ -30,10 +18,7 @@ func getEventsByDailyEvents(collection string, groupHashes StringSet) {
 		log.Printf("saveIndexesToFile error: %s", err)
 	}
 
-	writer, err := os.Create(fmt.Sprintf("./dump/%s.bson", collection))
-	if err != nil {
-		log.Fatalf("File open error: %s", err)
-	}
+	writer := createWriterToFile(fmt.Sprintf("%s.bson", collection))
 	defer writer.Close()
 
 	bar := pb.StartNew(len(groupHashes))
@@ -42,7 +27,7 @@ func getEventsByDailyEvents(collection string, groupHashes StringSet) {
 			"groupHash": groupHash,
 		}, &options.FindOptions{
 			Sort:bson.M{"lastRepetitionTime": -1},
-			Limit:&dailyEventsLimit,
+			Limit:&cfg.MaxEvents,
 		})
 		if err != nil {
 			log.Fatalf("error get: %s", err)

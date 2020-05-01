@@ -3,22 +3,21 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/caarlos0/env"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"log"
-	"os"
 	"sort"
 	"strings"
 	"time"
 )
 
 var db *mongo.Database
-var mostRecentCollectionsLimit = 10
-var dailyEventsLimit int64 = 10
-var repetitionsLimit int64 = 10
+var cfg Config
 
 type Empty struct {}
 
@@ -79,7 +78,7 @@ func getMostNewCollections() []string {
 
 	var mostRecentCollections []string
 	for i, collection := range lastRepetitionTimes {
-		if i >= mostRecentCollectionsLimit {
+		if i >= cfg.MaxCollections {
 			break
 		}
 		mostRecentCollections = append(mostRecentCollections, collection.Id)
@@ -88,20 +87,17 @@ func getMostNewCollections() []string {
 	return mostRecentCollections
 }
 
-func getLastDailyEvents(collection string) (StringSet) {
+func getLastDailyEvents(collection string) StringSet {
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	cur, err := db.Collection(collection).Find(ctx, bson.M{}, &options.FindOptions{
 		Sort:bson.M{"lastRepetitionTime": -1},
-		Limit:&dailyEventsLimit,
+		Limit:&cfg.MaxEvents,
 	})
 	if err != nil {
 		log.Fatalf("getLastDailyEvents error: %s", err)
 	}
 
-	writer, err := os.Create(fmt.Sprintf("./dump/%s.bson", collection))
-	if err != nil {
-		log.Fatalf("File open error: %s", err)
-	}
+	writer := createWriterToFile(fmt.Sprintf("%s.bson", collection))
 	defer writer.Close()
 
 	var groupHashes = make(StringSet)
@@ -136,8 +132,8 @@ func getLastDailyEvents(collection string) (StringSet) {
 func getEvents(collectionId string) []AggregatedResult {
 	ctx, _ := context.WithTimeout(context.Background(), 180*time.Second)
 
-	limitDailyEventsStage := bson.D{{"$limit", dailyEventsLimit}}
-	limitRepetitionsStage := bson.D{{"$limit", repetitionsLimit}}
+	limitDailyEventsStage := bson.D{{"$limit", cfg.MaxEvents}}
+	limitRepetitionsStage := bson.D{{"$limit", cfg.MaxEvents}}
 
 	lookupErrorStage := bson.D{{"$lookup", bson.D{
 		{"from", fmt.Sprintf("events:%s", collectionId)},
@@ -172,12 +168,6 @@ func getEvents(collectionId string) []AggregatedResult {
 		err := cur.Decode(&result)
 		if err != nil { log.Fatal(err) }
 		lastEvents = append(lastEvents, result)
-
-		//_, err = writer.Write(cur.Current)
-		//if err != nil {
-		//	log.Fatalf("error writing to file: %v", err)
-		//}
-
 	}
 	if err := cur.Err(); err != nil {
 		log.Fatal(err)
@@ -188,7 +178,17 @@ func getEvents(collectionId string) []AggregatedResult {
 
 
 func main() {
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://127.0.0.1:27018/?connect=direct"))
+	if err := godotenv.Load(); err != nil {
+		log.Println("File .env not found, reading configuration from ENV")
+	}
+
+	if err := env.Parse(&cfg); err != nil {
+		log.Fatalf("Failed to parse ENV")
+	}
+
+	fmt.Printf("%s", cfg)
+
+	client, err := mongo.NewClient(options.Client().ApplyURI(cfg.MongoDBConnectionURI))
 	if err != nil {
 		log.Fatalf("Error client creation: %s", err)
 	}
@@ -216,19 +216,7 @@ func main() {
 		groupHashes := getLastDailyEvents(collectionName)
 		getEventsByDailyEvents(fmt.Sprintf("events:%s", parts[1]), groupHashes)
 		saveRepetitionsByGroupHashes(fmt.Sprintf("repetitions:%s", parts[1]), groupHashes)
-
-
-	//
-	//	var bs bson.M
-	//	bs = bson.M{"dump": events}
-	//	bt, err := bson.Marshal(&bs)
-	//	if err != nil {
-	//		log.Fatalf("Marshal error: %s", err)
-	//	}
-	//
-	//	ioutil.WriteFile(filepath.Join("dump", fmt.Sprintf("%s.bson", parts[1])), bt, os.ModePerm)
 	}
-
 
 	log.Printf("Done")
 }

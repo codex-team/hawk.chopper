@@ -7,7 +7,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"os"
 	"time"
 )
 
@@ -19,10 +18,7 @@ func saveRepetitionsByGroupHashes(collection string, groupHashes StringSet) {
 		log.Printf("saveIndexesToFile error: %s", err)
 	}
 
-	writer, err := os.Create(fmt.Sprintf("./dump/%s.bson", collection))
-	if err != nil {
-		log.Fatalf("File open error: %s", err)
-	}
+	writer := createWriterToFile(fmt.Sprintf("%s.bson", collection))
 	defer writer.Close()
 
 	bar := pb.StartNew(len(groupHashes))
@@ -30,7 +26,7 @@ func saveRepetitionsByGroupHashes(collection string, groupHashes StringSet) {
 		cur, err := db.Collection(collection).Find(ctx, bson.M{
 			"groupHash": groupHash,
 		}, &options.FindOptions{
-			Limit:&repetitionsLimit,
+			Limit:&cfg.MaxRepetitions,
 		})
 		if err != nil {
 			log.Fatalf("error get: %s", err)

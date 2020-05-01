@@ -37,7 +37,7 @@ func saveIndexesToFile(collection string) error {
 		meta.Indexes = append(meta.Indexes, *indexOpts)
 	}
 
-	writer := createWriterToFile(fmt.Sprintf("./dump/%s.metadata.json", collection))
+	writer := createWriterToFile(fmt.Sprintf("%s.metadata.json", collection))
 	defer writer.Close()
 
 	jsonBytes, err := bson.MarshalExtJSON(meta, true, false)
